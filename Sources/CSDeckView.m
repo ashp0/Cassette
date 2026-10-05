@@ -588,9 +588,14 @@ static BOOL CSNeedsRetime(double running, double wanted)
 {
     size_t w = (size_t)ceil(CS_DECK_WIDTH * _scale), h = (size_t)ceil(CS_DECK_HEIGHT * _scale);
     CGColorSpaceRef cs = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
-    CGContextRef c = CGBitmapContextCreate(NULL, w, h, 8, 0, cs,
-                                           kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Host);
+    CGContextRef c = cs ? CGBitmapContextCreate(NULL, w, h, 8, 0, cs,
+                                                kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Host)
+                        : NULL;
     CGColorSpaceRelease(cs);
+    // A bitmap the size of the deck that could not be allocated is NULL, and
+    // -renderInContext: is not a call to hand a NULL context to. No snapshot
+    // is the answer, and every caller already treats NULL as that.
+    if (!c) return NULL;
     CGContextScaleCTM(c, _scale, _scale);
     [_root renderInContext:c];
     CGImageRef image = CGBitmapContextCreateImage(c);

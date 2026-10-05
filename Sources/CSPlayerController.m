@@ -87,6 +87,11 @@ static BOOL CSFrameIsOnScreen(NSRect frame)
     for (i = 0; i < sizeof(appEvents) / sizeof(appEvents[0]); i++)
         [nc addObserver:self selector:@selector(somethingChanged:) name:appEvents[i] object:NSApp];
 
+    // The engine stopping by itself -- the output would not come back after a
+    // wake -- is a change of play state nobody pressed a key for.
+    [nc addObserver:self selector:@selector(engineStoppedUnexpectedly:)
+               name:CSAudioEngineDidStopUnexpectedlyNotification object:_engine];
+
     // Waking can change the power source without the charger being touched
     // while the machine was awake to hear about it.
     NSNotificationCenter *ws = [[NSWorkspace sharedWorkspace] notificationCenter];
@@ -132,6 +137,16 @@ static BOOL CSFrameIsOnScreen(NSRect frame)
 - (void)windowWillClose:(NSNotification *)note
 {
     _windowOpen = NO;
+    [self reevaluate];
+}
+
+// The deck follows the engine. It kept its place, the way a pause does, so the
+// key that comes up is PLAY and the one that goes down is PAUSE -- pressing
+// either carries on from there -- and the reels stop with the sound.
+- (void)engineStoppedUnexpectedly:(NSNotification *)note
+{
+    if ([_engine hasTape] && ![_engine isPlaying] && _latched == CSKeyPlay)
+        [self latch:CSKeyPause];
     [self reevaluate];
 }
 
@@ -287,10 +302,30 @@ static BOOL CSFrameIsOnScreen(NSRect frame)
 
 - (BOOL)insertURL:(NSURL *)url error:(NSError **)error animated:(BOOL)animated
 {
+    if (![_engine loadURL:url error:error]) {
+        // "A file that can't be played is refused, and whatever tape was in
+        // stays in" -- which includes a tape still being restored. It used to
+        // be dropped before the new file was even tried, so a refusal left the
+        // deck showing a cassette that was no longer in it: Play then asked
+        // for a file instead of playing it.
+        //
+        // The engine keeps its own tape when the FILE is at fault. When the
+        // file was fine and the sound output was not, it has already let the
+        // old tape go, and the deck has to say so rather than go on showing it
+        // -- with PLAY held down and, on mains power, the reels turning over
+        // silence.
+        if (![self hasTape]) {
+            [self latch:CSKeyCount];
+            [_deck setTapeLoaded:NO title:nil artist:nil animated:animated];
+            [[self window] setTitle:@"Cassette"];
+            [self refreshTape];
+            [self reevaluate];
+        }
+        return NO;
+    }
     // A new tape replaces one still being restored without it ever being read.
     [_pendingTape release];
     _pendingTape = nil;
-    if (![_engine loadURL:url error:error]) return NO;
     [self latch:CSKeyCount];
     [self showLabel:[_engine title] artist:[_engine artist] animated:animated];
     [self refreshTape];

@@ -24,6 +24,12 @@
 
 static SInt64 sMaxRegionFrames = 0;
 
+// Test seam: the output refuses to start. See +setOutputStartFailsForTesting:.
+static BOOL sOutputStartFailsForTesting = NO;
+
+NSString *const CSAudioEngineDidStopUnexpectedlyNotification =
+    @"CSAudioEngineDidStopUnexpectedlyNotification";
+
 // The engine's own clock: frames the player has produced since its queue was
 // last built, counted on the audio thread as each slice is rendered.
 //
@@ -89,6 +95,11 @@ static NSError *CSAudioError(OSStatus status, NSString *message, NSString *detai
 + (void)setMaximumRegionFramesForTesting:(SInt64)frames
 {
     sMaxRegionFrames = frames > 0 ? frames : 0;
+}
+
++ (void)setOutputStartFailsForTesting:(BOOL)fails
+{
+    sOutputStartFailsForTesting = fails;
 }
 
 #pragma mark - What the system can read
@@ -538,21 +549,46 @@ static NSString *CSInfoString(NSDictionary *info, const char *key)
 #pragma mark - Transport
 
 // Rebuilds the queue if a pause left it stale, then lets the output run.
+//
+// A failure leaves the position noted and the queue marked stale, exactly as a
+// pause does, so the next attempt rebuilds the queue from where the tape is
+// rather than starting whatever is left of it. -scheduleFromFrame: clears
+// _needsSchedule before it schedules anything, so one that failed partway used
+// to leave a half-built queue looking current: the next Play started the output
+// over it, and the counter ran on through silence.
 - (BOOL)startOutput
 {
-    if (_needsSchedule && [self scheduleFromFrame:_baseFrames] != noErr) return NO;
+    if (_needsSchedule && [self scheduleFromFrame:_baseFrames] != noErr) {
+        [self stopOutputKeepingPosition];
+        return NO;
+    }
     [self topUpSchedule];
-    if (_output && AudioOutputUnitStart(_output) != noErr) return NO;
+    if (sOutputStartFailsForTesting ||
+        (_output && AudioOutputUnitStart(_output) != noErr)) {
+        [self stopOutputKeepingPosition];
+        return NO;
+    }
     [self armTopUpTimer];
     return YES;
 }
 
 // Stops the output and notes exactly where the tape got to.
+//
+// Stopped FIRST, then read, and the order is the whole of "exactly". The
+// count is advanced on the audio thread at the end of each slice, and a slice
+// can be mid-render at the instant this runs: read first, and that slice
+// lands after the read but before the stop, so the position recorded is one
+// device buffer (up to 4096 frames, ~93 ms) short of what was rendered, and
+// resuming plays that stretch again. AudioOutputUnitStop does not return while
+// a render is in progress, so once it has, the count is final. Measured
+// against the default output with a render that takes a few milliseconds:
+// read-then-stop moved the count after the read in 23 pauses of 40,
+// stop-then-read in none.
 - (void)stopOutputKeepingPosition
 {
+    if (_output) AudioOutputUnitStop(_output);
     _baseFrames = [self elapsedFrames];
     _needsSchedule = YES;
-    if (_output) AudioOutputUnitStop(_output);
     [self disarmTopUpTimer];
 }
 
@@ -616,7 +652,19 @@ static NSString *CSInfoString(NSDictionary *info, const char *key)
 {
     if (!_suspended) return;
     _suspended = NO;
-    if (_playing && ![self startOutput]) _playing = NO;
+    if (_playing && ![self startOutput]) {
+        // The output would not come back. The tape is where it was when the
+        // machine went down -- -startOutput keeps the position on failure, as
+        // a pause does -- but it is no longer playing, and nothing outside
+        // asked for that. Said out loud, because the one thing that must not
+        // happen is a deck showing PLAY held down over silence: this used to
+        // clear _playing and tell nobody, so the key stayed latched and on
+        // mains power the reels went on turning for a tape that had stopped.
+        _playing = NO;
+        [[NSNotificationCenter defaultCenter]
+            postNotificationName:CSAudioEngineDidStopUnexpectedlyNotification
+                          object:self];
+    }
 }
 
 #pragma mark - Volume

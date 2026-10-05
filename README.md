@@ -167,10 +167,13 @@ development.
 
 ### What has and hasn't been verified
 
-Verified on the development machine, x86_64 build: 68 unit, 35 audio-engine
-and 35 controller checks. Those include gapless, sample-exact looping across 24
+Verified on the development machine, x86_64 build: 68 unit, 39 audio-engine
+and 44 controller checks. Those include gapless, sample-exact looping across 24
 passes and 8 scheduled regions, pause and resume continuing from the exact
-sample, an AAC file looping with no priming gap, the battery and AC reel
+sample, an output that will not start (as after a wake) keeping the tape's
+place and the deck showing PAUSE rather than PLAY over silence, a file that
+cannot be played leaving a restored tape in the deck, an AAC file looping with
+no priming gap, the battery and AC reel
 policy driven through real focus changes, the counter running past the end of
 a two-second loop in a live window, eject, the restored tape appearing before
 its sound is read, the borderless window minimising and keeping its size, and

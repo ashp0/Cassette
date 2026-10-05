@@ -89,7 +89,10 @@
         _imageScale = scale;
     }
     CGContextRef c = (CGContextRef)[[NSGraphicsContext currentContext] graphicsPort];
-    CGContextDrawImage(c, NSRectToCGRect([self bounds]), _image);
+    // NULL only if the leather could not be drawn at all -- an allocation the
+    // machine refused -- and then there is nothing to put under the title; the
+    // next draw asks again.
+    if (_image) CGContextDrawImage(c, NSRectToCGRect([self bounds]), _image);
 
     NSWindow *w = [self window];
     BOOL active = [w isMainWindow] || [w isKeyWindow];

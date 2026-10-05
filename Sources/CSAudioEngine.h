@@ -18,6 +18,12 @@
 //     bookkeeping timer that fires about once an hour (see -topUpSchedule).
 //
 // All methods are for the main thread.
+
+// Posted on the default centre, with the engine as the object, when the engine
+// stops playing without having been asked to: the output would not start again
+// when the machine woke. The position is kept, as by -pause.
+extern NSString *const CSAudioEngineDidStopUnexpectedlyNotification;
+
 @interface CSAudioEngine : NSObject
 
 // Uniform type identifiers the system can decode, for an Open panel.
@@ -59,6 +65,10 @@
 // Caps the number of frames scheduled as one region, so a test can cross
 // several region boundaries in a fraction of a second. 0 restores the default.
 + (void)setMaximumRegionFramesForTesting:(SInt64)frames;
+
+// Makes the output refuse to start, as a device that is not ready after a wake
+// can, so the recovery from that can be driven without one.
++ (void)setOutputStartFailsForTesting:(BOOL)fails;
 
 // Offline instances only: pulls the next `frames` frames from the player, as
 // the output device would. Rendering is what advances the player's clock.

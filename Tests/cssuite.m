@@ -469,6 +469,19 @@ static int RunAudio(NSString *dir)
         OK([live play], @"resumes");
         [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.3]];
         OK([live elapsed] > held + 0.1, @"from where it paused");
+
+        // An output that refuses to start -- a device not ready after a wake --
+        // is reported, keeps the tape's place, and does not leave the next
+        // attempt starting over a queue it never finished building.
+        [live pause];
+        double kept = [live elapsed];
+        [CSAudioEngine setOutputStartFailsForTesting:YES];
+        OK(![live play] && ![live isPlaying], @"an output that will not start is reported, not assumed");
+        [CSAudioEngine setOutputStartFailsForTesting:NO];
+        OK(Near([live elapsed], kept, 1e-9), @"and the tape keeps its place (%.3f s)", kept);
+        OK([live play], @"the next attempt starts");
+        [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.3]];
+        OK([live elapsed] > kept + 0.1, @"from that place");
         [live stop];
         OK([live elapsed] == 0 && ![live isPlaying], @"stop rewinds");
     }
@@ -477,6 +490,13 @@ static int RunAudio(NSString *dir)
 }
 
 #pragma mark - deck
+
+// Private to the controller, declared rather than added: the public spelling
+// reports a refusal with an alert, which a test with no window on screen would
+// put up as a modal and wait on forever.
+@interface CSPlayerController (CSTestHooks)
+- (BOOL)insertURL:(NSURL *)url error:(NSError **)error animated:(BOOL)animated;
+@end
 
 static int RunDeck(void)
 {
@@ -597,6 +617,34 @@ static int RunDeck(void)
     OK([player reelsSpinning], @"reopened on AC: reels turn again");
     [player stop];
 
+    Section("the output does not come back after a wake");
+    // The engine steps out of the way while the machine sleeps and starts the
+    // output again on the way up. When the output will not start, the engine
+    // stops -- and the deck has to show that, not go on with PLAY held down
+    // and the reels turning over silence.
+    [player play];
+    Pump(0.3);
+    NSNotificationCenter *workspace = [[NSWorkspace sharedWorkspace] notificationCenter];
+    [workspace postNotificationName:NSWorkspaceWillSleepNotification object:nil];
+    double slept = [[player engine] elapsed];
+    [CSAudioEngine setOutputStartFailsForTesting:YES];
+    [workspace postNotificationName:NSWorkspaceDidWakeNotification object:nil];
+    [CSAudioEngine setOutputStartFailsForTesting:NO];
+    Pump(0.2);
+    OK(![player isPlaying], @"an output that will not restart after a wake stops the tape");
+    OK(![player reelsSpinning] && ![deck hubHasSpinAnimation:0],
+       @"and the reels stop with it, on AC as well");
+    OK([[player valueForKey:@"_latched"] intValue] == CSKeyPause,
+       @"the deck shows PAUSE held rather than PLAY");
+    OK(Near([[player engine] elapsed], slept, 0.01),
+       @"and the tape keeps its place (%.3f s, went to sleep at %.3f s)",
+       [[player engine] elapsed], slept);
+    [player pause];
+    Pump(0.3);
+    OK([player isPlaying] && [player reelsSpinning], @"pressing PAUSE again carries on");
+    OK([[player engine] elapsed] > slept + 0.1, @"from where it was");
+    [player stop];
+
     Section("eject");
     [player play];
     [player eject];
@@ -629,6 +677,27 @@ static int RunDeck(void)
     [next play];
     OK([next isPlaying], @"Play straight away reads it on the spot and plays");
     [next stop];
+    [[next window] orderOut:nil];
+    [next release];
+
+    // A file that cannot be played is refused, and whatever tape was in stays
+    // in -- including one that is still being restored. It used to be dropped
+    // before the new file was even tried, leaving a label on the deck for a
+    // tape that was no longer there.
+    NSURL *junk = [NSURL fileURLWithPath:[dir stringByAppendingPathComponent:@"not-audio.wav"]];
+    [@"this is not a sound" writeToURL:junk atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    next = [[CSPlayerController alloc] init];
+    [next restoreLastTape];
+    OK(![next insertURL:junk error:NULL animated:NO], @"a file that is not audio is refused");
+    OK([next hasTape] && [[next deck] tapeLoaded],
+       @"and the tape being restored is still in the deck");
+    Pump(0.3);
+    // Compared as files rather than as spellings: the restored URL comes back
+    // through bookmark resolution, which names /var as /private/var.
+    NSString *readPath = [[[[next engine] URL] URLByResolvingSymlinksInPath] path];
+    NSString *songPath = [[song URLByResolvingSymlinksInPath] path];
+    OK([[next engine] hasTape] && [readPath isEqualToString:songPath],
+       @"and is read a moment later, as it would have been (%@)", readPath);
     [[next window] orderOut:nil];
     [next release];
 
