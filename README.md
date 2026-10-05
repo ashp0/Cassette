@@ -52,6 +52,12 @@ The deck remembers its last tape. It goes back in at the next launch, stopped:
 a deck keeps its cassette, but it doesn't start playing by itself. A tape you
 eject is gone for good: the next launch starts with an empty deck.
 
+Sleep pauses the tape. If the Mac goes to sleep while a tape plays, it wakes
+with the tape paused at the same spot and the PAUSE key down; PLAY or PAUSE
+carries on. So a wake nobody meant, such as a mouse nudged in the night, stays
+silent, and the Mac can go back to sleep on its own. A tape left playing still
+keeps the Mac awake, as any music does.
+
 **Formats:** anything OS X 10.9 can decode: AIFF, WAV, MP3, AAC and Apple
 Lossless (`.m4a`), Core Audio (`.caf`) and a few others. FLAC and Ogg are not
 among them on Mavericks. A file that can't be played is refused with an
@@ -167,11 +173,12 @@ development.
 
 ### What has and hasn't been verified
 
-Verified on the development machine, x86_64 build: 68 unit, 39 audio-engine
-and 44 controller checks. Those include gapless, sample-exact looping across 24
+Verified on the development machine, x86_64 build: 68 unit, 44 audio-engine
+and 45 controller checks. Those include gapless, sample-exact looping across 24
 passes and 8 scheduled regions, pause and resume continuing from the exact
-sample, an output that will not start (as after a wake) keeping the tape's
-place and the deck showing PAUSE rather than PLAY over silence, a file that
+sample, an output that will not start keeping the tape's place, a tape playing
+at sleep coming back paused in the same place with the deck showing PAUSE
+rather than PLAY, a file that
 cannot be played leaving a restored tape in the deck, an AAC file looping with
 no priming gap, the battery and AC reel
 policy driven through real focus changes, the counter running past the end of

@@ -20,9 +20,11 @@
 // All methods are for the main thread.
 
 // Posted on the default centre, with the engine as the object, when the engine
-// stops playing without having been asked to: the output would not start again
-// when the machine woke. The position is kept, as by -pause.
-extern NSString *const CSAudioEngineDidStopUnexpectedlyNotification;
+// pauses without having been asked to: the machine is going to sleep. A tape
+// playing at sleep comes back paused, so a wake nobody meant -- a mouse nudged
+// in the night -- neither starts the music again nor, with it, holds the
+// machine awake behind a dark screen. The position is kept, as by -pause.
+extern NSString *const CSAudioEngineDidPauseForSleepNotification;
 
 @interface CSAudioEngine : NSObject
 

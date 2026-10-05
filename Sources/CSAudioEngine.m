@@ -27,8 +27,8 @@ static SInt64 sMaxRegionFrames = 0;
 // Test seam: the output refuses to start. See +setOutputStartFailsForTesting:.
 static BOOL sOutputStartFailsForTesting = NO;
 
-NSString *const CSAudioEngineDidStopUnexpectedlyNotification =
-    @"CSAudioEngineDidStopUnexpectedlyNotification";
+NSString *const CSAudioEngineDidPauseForSleepNotification =
+    @"CSAudioEngineDidPauseForSleepNotification";
 
 // The engine's own clock: frames the player has produced since its queue was
 // last built, counted on the audio thread as each slice is rendered.
@@ -84,7 +84,6 @@ static NSError *CSAudioError(OSStatus status, NSString *message, NSString *detai
     BOOL         _offline;
     BOOL         _playing;
     BOOL         _needsSchedule;   // paused: the queue must be rebuilt from _baseFrames
-    BOOL         _suspended;       // playing, but held while the machine sleeps
     float        _volume;
     NSTimer     *_topUpTimer;
     CSRenderCount *_rendered;
@@ -147,8 +146,6 @@ static NSError *CSAudioError(OSStatus status, NSString *message, NSString *detai
             NSNotificationCenter *ws = [[NSWorkspace sharedWorkspace] notificationCenter];
             [ws addObserver:self selector:@selector(systemWillSleep:)
                        name:NSWorkspaceWillSleepNotification object:nil];
-            [ws addObserver:self selector:@selector(systemDidWake:)
-                       name:NSWorkspaceDidWakeNotification object:nil];
         }
     }
     return self;
@@ -480,7 +477,6 @@ static NSString *CSInfoString(NSDictionary *info, const char *key)
 - (OSStatus)rewind
 {
     _playing = NO;
-    _suspended = NO;
     return [self scheduleFromFrame:0];
 }
 
@@ -604,9 +600,8 @@ static NSString *CSInfoString(NSDictionary *info, const char *key)
 - (void)pause
 {
     if (!_playing) return;
-    if (!_suspended) [self stopOutputKeepingPosition];
+    [self stopOutputKeepingPosition];
     _playing = NO;
-    _suspended = NO;
 }
 
 - (void)stop
@@ -618,7 +613,6 @@ static NSString *CSInfoString(NSDictionary *info, const char *key)
 {
     if (_output) AudioOutputUnitStop(_output);
     _playing = NO;
-    _suspended = NO;
     _needsSchedule = NO;
     [self disarmTopUpTimer];
     if (_player) AudioUnitReset(_player, kAudioUnitScope_Global, 0);
@@ -636,35 +630,22 @@ static NSString *CSInfoString(NSDictionary *info, const char *key)
 
 #pragma mark - Sleep
 
-// The output stops while the machine sleeps, and its clock may start again from
-// zero on wake -- which, as above, would send the player back to the top of the
-// file. So the engine steps out of the way itself: position noted on the way
-// down, queue rebuilt from it on the way up. To everything outside, the tape
-// was playing throughout.
+// A tape playing when the machine goes to sleep is paused, and comes back that
+// way. This used to start it again on wake, which turned any wake at all into
+// music -- a mouse nudged in the night included -- and a playing tape holds the
+// machine awake (Core Audio keeps idle sleep off while the output runs), so one
+// such wake kept the Mac up behind a dark screen until someone pressed PAUSE.
+//
+// The pause is also what keeps the place. The output stops while the machine
+// sleeps, and its clock may start again from zero on wake -- which, as above,
+// would send the player back to the top of the file. A pause notes the position
+// on the way down, and the next PLAY rebuilds the queue from it.
 - (void)systemWillSleep:(NSNotification *)note
 {
-    if (!_playing || _suspended || _offline) return;
-    [self stopOutputKeepingPosition];
-    _suspended = YES;
-}
-
-- (void)systemDidWake:(NSNotification *)note
-{
-    if (!_suspended) return;
-    _suspended = NO;
-    if (_playing && ![self startOutput]) {
-        // The output would not come back. The tape is where it was when the
-        // machine went down -- -startOutput keeps the position on failure, as
-        // a pause does -- but it is no longer playing, and nothing outside
-        // asked for that. Said out loud, because the one thing that must not
-        // happen is a deck showing PLAY held down over silence: this used to
-        // clear _playing and tell nobody, so the key stayed latched and on
-        // mains power the reels went on turning for a tape that had stopped.
-        _playing = NO;
-        [[NSNotificationCenter defaultCenter]
-            postNotificationName:CSAudioEngineDidStopUnexpectedlyNotification
-                          object:self];
-    }
+    if (!_playing || _offline) return;
+    [self pause];
+    [[NSNotificationCenter defaultCenter]
+        postNotificationName:CSAudioEngineDidPauseForSleepNotification object:self];
 }
 
 #pragma mark - Volume

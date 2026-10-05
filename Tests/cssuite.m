@@ -482,6 +482,27 @@ static int RunAudio(NSString *dir)
         OK([live play], @"the next attempt starts");
         [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.3]];
         OK([live elapsed] > kept + 0.1, @"from that place");
+
+        // A tape playing when the machine goes to sleep is paused, says so, and
+        // is still paused, in the same place, when the machine wakes.
+        __block int pausedForSleep = 0;
+        id observer = [[NSNotificationCenter defaultCenter]
+            addObserverForName:CSAudioEngineDidPauseForSleepNotification object:live
+                         queue:nil usingBlock:^(NSNotification *note) { pausedForSleep++; }];
+        NSNotificationCenter *workspace = [[NSWorkspace sharedWorkspace] notificationCenter];
+        [workspace postNotificationName:NSWorkspaceWillSleepNotification object:nil];
+        double asleep = [live elapsed];
+        OK(![live isPlaying] && pausedForSleep == 1, @"going to sleep pauses the tape, and says so");
+        [workspace postNotificationName:NSWorkspaceDidWakeNotification object:nil];
+        [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.3]];
+        OK(![live isPlaying] && Near([live elapsed], asleep, 0.01),
+           @"waking does not start it again, and it keeps its place (%.3f s)", asleep);
+        [workspace postNotificationName:NSWorkspaceWillSleepNotification object:nil];
+        OK(pausedForSleep == 1, @"a tape already paused is left alone by the next sleep");
+        [[NSNotificationCenter defaultCenter] removeObserver:observer];
+        OK([live play], @"PLAY carries on after a sleep");
+        [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.3]];
+        OK([live elapsed] > asleep + 0.1, @"from where it was");
         [live stop];
         OK([live elapsed] == 0 && ![live isPlaying], @"stop rewinds");
     }
@@ -617,21 +638,19 @@ static int RunDeck(void)
     OK([player reelsSpinning], @"reopened on AC: reels turn again");
     [player stop];
 
-    Section("the output does not come back after a wake");
-    // The engine steps out of the way while the machine sleeps and starts the
-    // output again on the way up. When the output will not start, the engine
-    // stops -- and the deck has to show that, not go on with PLAY held down
-    // and the reels turning over silence.
+    Section("sleep pauses the tape");
+    // A tape playing when the machine goes to sleep comes back paused: a wake
+    // nobody meant -- a mouse nudged in the night -- must not start the music
+    // again and hold the machine awake. And the deck has to show it, not go on
+    // with PLAY held down and the reels turning over silence.
     [player play];
     Pump(0.3);
     NSNotificationCenter *workspace = [[NSWorkspace sharedWorkspace] notificationCenter];
     [workspace postNotificationName:NSWorkspaceWillSleepNotification object:nil];
     double slept = [[player engine] elapsed];
-    [CSAudioEngine setOutputStartFailsForTesting:YES];
     [workspace postNotificationName:NSWorkspaceDidWakeNotification object:nil];
-    [CSAudioEngine setOutputStartFailsForTesting:NO];
-    Pump(0.2);
-    OK(![player isPlaying], @"an output that will not restart after a wake stops the tape");
+    Pump(0.3);
+    OK(![player isPlaying], @"a tape playing at sleep is still paused after the wake");
     OK(![player reelsSpinning] && ![deck hubHasSpinAnimation:0],
        @"and the reels stop with it, on AC as well");
     OK([[player valueForKey:@"_latched"] intValue] == CSKeyPause,
@@ -644,6 +663,12 @@ static int RunDeck(void)
     OK([player isPlaying] && [player reelsSpinning], @"pressing PAUSE again carries on");
     OK([[player engine] elapsed] > slept + 0.1, @"from where it was");
     [player stop];
+    int stoppedKey = [[player valueForKey:@"_latched"] intValue];
+    [workspace postNotificationName:NSWorkspaceWillSleepNotification object:nil];
+    [workspace postNotificationName:NSWorkspaceDidWakeNotification object:nil];
+    Pump(0.1);
+    OK(![player isPlaying] && [[player valueForKey:@"_latched"] intValue] == stoppedKey,
+       @"a stopped deck is left alone by a sleep");
 
     Section("eject");
     [player play];

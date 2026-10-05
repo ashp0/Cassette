@@ -87,10 +87,10 @@ static BOOL CSFrameIsOnScreen(NSRect frame)
     for (i = 0; i < sizeof(appEvents) / sizeof(appEvents[0]); i++)
         [nc addObserver:self selector:@selector(somethingChanged:) name:appEvents[i] object:NSApp];
 
-    // The engine stopping by itself -- the output would not come back after a
-    // wake -- is a change of play state nobody pressed a key for.
-    [nc addObserver:self selector:@selector(engineStoppedUnexpectedly:)
-               name:CSAudioEngineDidStopUnexpectedlyNotification object:_engine];
+    // The engine pausing by itself as the machine goes to sleep is a change of
+    // play state nobody pressed a key for.
+    [nc addObserver:self selector:@selector(enginePausedForSleep:)
+               name:CSAudioEngineDidPauseForSleepNotification object:_engine];
 
     // Waking can change the power source without the charger being touched
     // while the machine was awake to hear about it.
@@ -143,7 +143,7 @@ static BOOL CSFrameIsOnScreen(NSRect frame)
 // The deck follows the engine. It kept its place, the way a pause does, so the
 // key that comes up is PLAY and the one that goes down is PAUSE -- pressing
 // either carries on from there -- and the reels stop with the sound.
-- (void)engineStoppedUnexpectedly:(NSNotification *)note
+- (void)enginePausedForSleep:(NSNotification *)note
 {
     if ([_engine hasTape] && ![_engine isPlaying] && _latched == CSKeyPlay)
         [self latch:CSKeyPause];
