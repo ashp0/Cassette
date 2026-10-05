@@ -1,0 +1,14 @@
+# Everything here is produced by `make` from something that is tracked.
+
+# Objects, test binaries, fixtures, snapshots, the icon tool
+build/
+
+# The application bundle, assembled from Sources/ and Resources/
+Cassette.app/
+
+# macOS
+.DS_Store
+
+# Cassette.zip is deliberately NOT ignored, as in Postview: the Mavericks
+# machine cannot build this tree, so a copy of the repository has to carry a
+# working app. Rebuild it with `make dist` when the app changes.
