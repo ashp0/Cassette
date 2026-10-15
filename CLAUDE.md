@@ -17,7 +17,10 @@ the job is to install, run and report.
 ## Behaviour to keep
 
 - Cassette pauses at sleep (b72e401), so it no longer holds the Mac awake after a wake.
-  Nightlatch depends on that.
+  Nightlatch depends on that. One exception is by design: a wake can still end in music
+  through Syllabus, whose countdown after a wake starts the block by itself if nobody
+  answers it. That start plays the tape and the block's end pauses it, and Syllabus
+  holds the Mac awake through the block regardless. The README's sleep paragraph says so.
 - The block cue: `CSAppDelegate` plays on the distributed notification
   `com.syllabus.block.started` and pauses on `com.syllabus.block.ended`, which Syllabus
   posts. The names are shared with Syllabus; change both repos or neither. A cue never

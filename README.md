@@ -55,9 +55,15 @@ eject is gone for good: the next launch starts with an empty deck.
 
 Sleep pauses the tape. If the Mac goes to sleep while a tape plays, it wakes
 with the tape paused at the same spot and the PAUSE key down; PLAY or PAUSE
-carries on. So a wake nobody meant, such as a mouse nudged in the night, stays
-silent, and the Mac can go back to sleep on its own. A tape left playing still
-keeps the Mac awake, as any music does.
+carries on. The wake itself plays nothing, so a wake nobody meant, such as a
+mouse nudged in the night, stays silent, and the Mac can go back to sleep on
+its own. A tape left playing still keeps the Mac awake, as any music does.
+
+The exception is Syllabus. A wake before its stop time, with a block left
+that fits, brings up that block's 60-second countdown, and if nobody answers,
+the block starts when it runs out. The tape plays with it, as at any block's
+start, and pauses when the block ends, at the latest ten minutes past its
+planned length. Syllabus keeps the Mac awake through a block either way.
 
 **Formats:** anything OS X 10.9 can decode: AIFF, WAV, MP3, AAC and Apple
 Lossless (`.m4a`), Core Audio (`.caf`) and a few others. FLAC and Ogg are not
