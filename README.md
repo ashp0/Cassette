@@ -43,6 +43,7 @@ runs kills it. (Postview's README explains this in detail.)
 | Drag the handle | Moves the deck, as a title bar would; so does dragging the cabinet anywhere that isn't a control. Double-click the handle to minimise it, if that is set in System Preferences > Dock. |
 | Close the window | The music keeps playing. Click the Dock icon, or ⌘1, to bring the deck back. |
 | Dock icon menu | Play / Pause, Stop and Eject without bringing the deck forward. |
+| A Syllabus block starting or ending | The tape plays when a block starts and pauses when it ends, the keys going down as if pressed. A tape that sleep paused plays at the next start; an empty deck stays empty. |
 
 Finder's **Open With → Cassette** works too. Cassette registers as an
 *alternate* handler for audio, so installing it doesn't take any file type away
@@ -174,7 +175,7 @@ development.
 ### What has and hasn't been verified
 
 Verified on the development machine, x86_64 build: 68 unit, 44 audio-engine
-and 45 controller checks. Those include gapless, sample-exact looping across 24
+and 65 controller checks. Those include gapless, sample-exact looping across 24
 passes and 8 scheduled regions, pause and resume continuing from the exact
 sample, an output that will not start keeping the tape's place, a tape playing
 at sleep coming back paused in the same place with the deck showing PAUSE
@@ -185,14 +186,20 @@ policy driven through real focus changes, the counter running past the end of
 a two-second loop in a live window, eject, the restored tape appearing before
 its sound is read, the borderless window minimising and keeping its size, and
 the artwork cache giving back exactly the pixels it was given (and ignoring a
-damaged file). Also verified: clean static analysis and `make verify`.
+damaged file), and Syllabus's block cue: a start playing the tape and an end
+pausing it, through the real distributed notification centre with delivery
+suspended as it is for an app in the background; an end leaving a paused deck
+paused; and a start doing nothing to an empty deck or one going to sleep. Also
+verified: clean static analysis and `make verify`.
 
 **Not verified: running on 10.9 itself.** The development machine can't run
 Mavericks. The part of this version most particular to 10.9 is the handle: the
 window has no system title bar, and puts the standard close, minimise and zoom
 buttons on the leather itself, using only public API that 10.9 has. Check on
 the Mac Pro that they show their colours, and their ×, − symbols under the
-pointer, and that the window casts its shadow. Every class and function the binary imports has been checked against
+pointer, and that the window casts its shadow. Check too that a Syllabus block
+starting with Syllabus in front plays the tape, and that its end pauses it.
+Every class and function the binary imports has been checked against
 where it lives on 10.9: the Foundation classes by comparison with Postview's
 binary, which is known to run on this Mac Pro. But the first launch on the Mac
 Pro is the real test. For a release, build against a real 10.9 SDK if you have
@@ -214,6 +221,6 @@ make clean dist SDK=/path/to/MacOSX10.9.sdk REQUIRE_SDK=10.9
 | `Sources/CSDeckView` | The layer tree, the reel animation, keys, knob, drag and drop |
 | `Sources/CSDeckWindow` | The borderless window and its leather handle, with the real window buttons on it |
 | `Sources/CSPlayerController` | Window, transport, and when the reels may move |
-| `Sources/CSAppDelegate` | Menus, Open With, launch and reopen |
+| `Sources/CSAppDelegate` | Menus, Open With, launch and reopen, and Syllabus's block cue |
 | `Tests/cssuite.m` | Every check, one subcommand per suite |
 | `Tools/mkicon.m` | Draws the icon from the deck's own cassette artwork |

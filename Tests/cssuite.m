@@ -19,6 +19,7 @@
 #import "CSDeckWindow.h"
 #import "CSArtworkCache.h"
 #import "CSPlayerController.h"
+#import "CSAppDelegate.h"
 #include <math.h>
 #include <unistd.h>
 
@@ -519,6 +520,171 @@ static int RunAudio(NSString *dir)
 - (BOOL)insertURL:(NSURL *)url error:(NSError **)error animated:(BOOL)animated;
 @end
 
+// The delegate's handlers for Syllabus's block cue, called here the way the
+// distributed notification calls them.
+@interface CSAppDelegate (CSTestHooks)
+- (void)blockStarted:(NSNotification *)note;
+- (void)blockEnded:(NSNotification *)note;
+@end
+
+// Counts what an observer registered the ordinary way hears, to show that
+// delivery really was suspended when the cue got through.
+@interface CSCueWitness : NSObject
+@property (nonatomic) int heard;
+- (void)hear:(NSNotification *)note;
+@end
+
+@implementation CSCueWitness
+@synthesize heard = _heard;
+- (void)hear:(NSNotification *)note { _heard++; }
+@end
+
+static BOOL PumpUntil(double seconds, BOOL (^done)(void))
+{
+    NSDate *until = [NSDate dateWithTimeIntervalSinceNow:seconds];
+    while (!done() && [until timeIntervalSinceNow] > 0) Pump(0.05);
+    return done();
+}
+
+static int Latched(CSPlayerController *player)
+{
+    return [[player valueForKey:@"_latched"] intValue];
+}
+
+// Syllabus posts com.syllabus.block.started as a block starts and
+// com.syllabus.block.ended as it ends. The deck plays on the one and pauses on
+// the other, the way its keys would, and otherwise does nothing.
+static void TestBlockCue(NSURL *junk)
+{
+    Section("the block cue");
+    NSDictionary *started = [NSDictionary dictionaryWithObject:@"Course 101" forKey:@"course"];
+    NSDictionary *ended = [NSDictionary dictionaryWithObjectsAndKeys:
+                           @"Course 101", @"course", @"answered", @"how", nil];
+    NSNotification *start = [NSNotification notificationWithName:@"com.syllabus.block.started"
+                                                          object:nil userInfo:started];
+    NSNotification *end = [NSNotification notificationWithName:@"com.syllabus.block.ended"
+                                                        object:nil userInfo:ended];
+
+    // Launched as the app is, so the deck restores the remembered tape and the
+    // observers are registered where the app registers them.
+    CSAppDelegate *app = [[CSAppDelegate alloc] init];
+    [app applicationWillFinishLaunching:
+        [NSNotification notificationWithName:NSApplicationWillFinishLaunchingNotification object:NSApp]];
+    [app applicationDidFinishLaunching:
+        [NSNotification notificationWithName:NSApplicationDidFinishLaunchingNotification object:NSApp]];
+    CSPlayerController *cued = [app player];
+    CSDeckView *deck = [cued deck];
+    OK([cued hasTape] && ![cued isPlaying], @"the remembered tape is back in, stopped");
+
+    [app blockStarted:start];
+    OK([cued isPlaying], @"a block starting plays it, reading a restored tape on the spot");
+    OK(Latched(cued) == CSKeyPlay && [cued reelsSpinning], @"with PLAY held down and the reels turning");
+    Pump(0.4);
+    double at = [[cued engine] elapsed];
+    [app blockStarted:start];
+    Pump(0.2);
+    OK([cued isPlaying] && [[cued engine] elapsed] > at,
+       @"a start while it plays changes nothing (%.2f s, then %.2f s)", at, [[cued engine] elapsed]);
+
+    [app blockEnded:end];
+    at = [[cued engine] elapsed];
+    OK(![cued isPlaying] && Latched(cued) == CSKeyPause && ![cued reelsSpinning],
+       @"a block ending pauses it, with PAUSE held down");
+    [app blockEnded:end];
+    Pump(0.2);
+    OK(![cued isPlaying] && Latched(cued) == CSKeyPause,
+       @"an end on a paused deck leaves it paused (pressing PAUSE there would play)");
+    [app blockStarted:start];
+    Pump(0.2);
+    OK([cued isPlaying] && [[cued engine] elapsed] >= at - 0.01,
+       @"the next start carries on from the same place (%.2f s, paused at %.2f s)",
+       [[cued engine] elapsed], at);
+
+    // A tape that sleep paused: an end leaves it paused, a start once the Mac
+    // is awake plays it, and a start on the way down to sleep is ignored.
+    NSNotificationCenter *workspace = [[NSWorkspace sharedWorkspace] notificationCenter];
+    [workspace postNotificationName:NSWorkspaceWillSleepNotification object:nil];
+    OK(![cued isPlaying] && Latched(cued) == CSKeyPause, @"sleep pauses it as before");
+    [app blockStarted:start];
+    OK(![cued isPlaying] && Latched(cued) == CSKeyPause,
+       @"a start while the Mac goes to sleep is ignored, so the tape can't run through the sleep");
+    [workspace postNotificationName:NSWorkspaceDidWakeNotification object:nil];
+    Pump(0.2);
+    OK(![cued isPlaying], @"the wake stays silent");
+    [app blockEnded:end];
+    OK(![cued isPlaying] && Latched(cued) == CSKeyPause, @"an end after the wake leaves the sleep's pause alone");
+    [app blockStarted:start];
+    OK([cued isPlaying] && Latched(cued) == CSKeyPlay, @"a block starting after the wake plays it");
+
+    [cued stop];
+    [app blockStarted:start];
+    OK([cued isPlaying] && [[cued engine] elapsed] < 0.5, @"a stopped tape plays from the top");
+    [app blockEnded:end];
+
+    // Through the real distributed centre, with delivery suspended as Cocoa
+    // suspends it for an app in the background. Skipped while a real Cassette
+    // runs on this Mac, since it would hear the cue too.
+    if ([[NSRunningApplication runningApplicationsWithBundleIdentifier:@"com.cassette.Cassette"] count]) {
+        printf("   SKIP: Cassette is running here, and would play on the suite's cue\n");
+    } else {
+        NSDistributedNotificationCenter *dnc = [NSDistributedNotificationCenter defaultCenter];
+        NSString *control = @"com.cassette.suite.control";
+        CSCueWitness *witness = [[CSCueWitness alloc] init];
+        [dnc addObserver:witness selector:@selector(hear:) name:control object:nil];
+        BOOL wasSuspended = [dnc suspended];
+        [dnc setSuspended:YES];
+        // First something nobody asked to have at once, to show the hold is
+        // real. (The server lets it through later, with the next one that is
+        // asked for at once.)
+        [dnc postNotificationName:control object:nil userInfo:nil];
+        Pump(0.6);
+        OK([witness heard] == 0 && [dnc suspended],
+           @"with delivery suspended, an ordinary distributed notification is held back");
+        [dnc postNotificationName:@"com.syllabus.block.started" object:nil userInfo:started];
+        BOOL played = PumpUntil(3.0, ^{ return [cued isPlaying]; });
+        OK(played && Latched(cued) == CSKeyPlay, @"while a posted start reaches the deck and plays it");
+        [dnc postNotificationName:@"com.syllabus.block.ended" object:nil userInfo:ended];
+        BOOL paused = PumpUntil(3.0, ^{ return (BOOL)![cued isPlaying]; });
+        OK(paused && Latched(cued) == CSKeyPause, @"and a posted end pauses it");
+        [dnc removeObserver:witness];
+        [dnc setSuspended:wasSuspended];
+        [witness release];
+    }
+
+    [cued eject];
+    Pump(0.2);
+    [app blockStarted:start];
+    Pump(1.5);
+    OK(![cued hasTape] && ![cued isPlaying] && [[cued window] attachedSheet] == nil && ![deck tapeLoaded],
+       @"on an empty deck a start does nothing, and doesn't ask for a tape");
+    [app blockEnded:end];
+    OK(![cued hasTape] && ![cued isPlaying], @"nor does an end");
+
+    [[cued window] orderOut:nil];
+    [app release];
+
+    // A remembered tape that turns out not to play, read for the first time by
+    // the cue: the deck ends up empty, quietly, and nothing asks for a tape.
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    NSData *mark = [junk bookmarkDataWithOptions:0 includingResourceValuesForKeys:nil
+                                   relativeToURL:nil error:NULL];
+    OK(mark != nil, @"a remembered tape that is not audio");
+    [defaults setObject:mark forKey:@"CSLastTapeBookmark"];
+    [defaults setObject:@"Not audio" forKey:@"CSLastTapeTitle"];
+    app = [[CSAppDelegate alloc] init];
+    [app applicationWillFinishLaunching:
+        [NSNotification notificationWithName:NSApplicationWillFinishLaunchingNotification object:NSApp]];
+    [app applicationDidFinishLaunching:
+        [NSNotification notificationWithName:NSApplicationDidFinishLaunchingNotification object:NSApp]];
+    cued = [app player];
+    [app blockStarted:start];
+    Pump(1.5);
+    OK(![cued hasTape] && ![cued isPlaying] && [[cued window] attachedSheet] == nil &&
+       ![[cued deck] tapeLoaded], @"read by a start, it leaves the deck empty without asking for a tape");
+    [[cued window] orderOut:nil];
+    [app release];
+}
+
 static int RunDeck(void)
 {
     [NSApplication sharedApplication];
@@ -725,6 +891,8 @@ static int RunDeck(void)
        @"and is read a moment later, as it would have been (%@)", readPath);
     [[next window] orderOut:nil];
     [next release];
+
+    TestBlockCue(junk);
 
     CSSetPowerSourceOverride(CSPowerUnknown, NO);
     if (previous && ![previous isEqual:[NSRunningApplication currentApplication]])

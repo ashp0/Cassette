@@ -1,13 +1,28 @@
 #import "CSAppDelegate.h"
 #import "CSPlayerController.h"
 
+// Syllabus, the study clock, posts these as one of its blocks starts and ends.
+// Their user info names the course, and for the end how it ended; the deck has
+// no use for either.
+static NSString *const CSBlockStartedNotification = @"com.syllabus.block.started";
+static NSString *const CSBlockEndedNotification   = @"com.syllabus.block.ended";
+
 @implementation CSAppDelegate
 {
     CSPlayerController *_player;
     BOOL _openedFileAtLaunch;
+    BOOL _goingToSleep;
 }
 
 @synthesize player = _player;
+
+- (void)dealloc
+{
+    [[NSDistributedNotificationCenter defaultCenter] removeObserver:self];
+    [[[NSWorkspace sharedWorkspace] notificationCenter] removeObserver:self];
+    [_player release];
+    [super dealloc];
+}
 
 #pragma mark - Menus
 
@@ -117,6 +132,58 @@ static NSString *CSFnKey(unichar c)
     return menu;
 }
 
+#pragma mark - The block cue
+
+// When a Syllabus block starts the tape plays, and when it ends the tape
+// pauses, by the same calls as the PLAY and PAUSE keys, so the deck shows it.
+//
+// Cocoa holds distributed notifications back from an app that is not active
+// until it next is, and while a block runs Syllabus is the app in front; so
+// these two are registered to be delivered at once regardless. Nothing polls:
+// Syllabus posts, and the deck hears it.
+- (void)observeBlockCue
+{
+    NSDistributedNotificationCenter *dnc = [NSDistributedNotificationCenter defaultCenter];
+    [dnc addObserver:self selector:@selector(blockStarted:) name:CSBlockStartedNotification
+              object:nil suspensionBehavior:NSNotificationSuspensionBehaviorDeliverImmediately];
+    [dnc addObserver:self selector:@selector(blockEnded:) name:CSBlockEndedNotification
+              object:nil suspensionBehavior:NSNotificationSuspensionBehaviorDeliverImmediately];
+
+    NSNotificationCenter *ws = [[NSWorkspace sharedWorkspace] notificationCenter];
+    [ws addObserver:self selector:@selector(systemWillSleep:)
+               name:NSWorkspaceWillSleepNotification object:nil];
+    [ws addObserver:self selector:@selector(systemDidWake:)
+               name:NSWorkspaceDidWakeNotification object:nil];
+}
+
+// PLAY, when there is a tape in and it is not already running: a stopped tape
+// plays from the top, a paused one carries on, and one paused by the Mac going
+// to sleep carries on too, since a block starting is what the music is for
+// (Syllabus holds the display awake through a block in any case). The cue
+// never asks for a tape: an empty deck stays empty. A tape still being
+// restored at launch is read first, so one that can no longer be played
+// leaves the deck empty instead of opening the Open panel.
+//
+// Between the Mac starting to go to sleep and waking, a start is ignored.
+// Playing then would leave the tape running through the sleep, and the next
+// wake, meant or not, would bring the music back.
+- (void)blockStarted:(NSNotification *)note
+{
+    if (_goingToSleep) return;
+    [_player finishRestoringTape];
+    if ([_player hasTape] && ![_player isPlaying]) [_player play];
+}
+
+// PAUSE, when the tape is running. A deck already paused, by hand or by
+// sleep, is left as it is: pressing PAUSE there would release it and play.
+- (void)blockEnded:(NSNotification *)note
+{
+    if ([_player isPlaying]) [_player pause];
+}
+
+- (void)systemWillSleep:(NSNotification *)note { _goingToSleep = YES; }
+- (void)systemDidWake:(NSNotification *)note   { _goingToSleep = NO; }
+
 #pragma mark - Lifecycle
 
 - (void)applicationWillFinishLaunching:(NSNotification *)note
@@ -146,6 +213,7 @@ static NSString *CSFnKey(unichar c)
 {
     if (!_openedFileAtLaunch) [_player restoreLastTape];
     [_player showDeck];
+    [self observeBlockCue];
 }
 
 // Closing the window does not stop the music; clicking the Dock icon brings
