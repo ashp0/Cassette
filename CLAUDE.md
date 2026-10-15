@@ -8,10 +8,11 @@ This repo is **public**. Keep personal paths and names out of it.
 
 ## Building
 
-Build with `make dist` on a modern Mac with Xcode. Pass
-`SDK="$HOME/Developer/SDKs/MacOSX10.9.sdk"` to link against the real 10.9.5 SDK. After
-a change, rebuild `Cassette.zip` and commit it. A 10.9 machine can't build this tree;
-on one, the job is to install, run and report.
+Build with `make dist` on a modern Mac with Xcode. Build a release against the real
+10.9.5 SDK, `make clean dist SDK="$HOME/Developer/SDKs/MacOSX10.9.sdk" REQUIRE_SDK=10.9`,
+and `make verify` fails if the binary names any other SDK. After a change, rebuild
+`Cassette.zip` that way and commit it. A 10.9 machine can't build this tree; on one,
+the job is to install, run and report.
 
 ## Behaviour to keep
 
@@ -29,6 +30,10 @@ on one, the job is to install, run and report.
 - A current SDK binds many Foundation classes to CoreFoundation. A name that 10.9's CF
   doesn't export stops loading with "Symbol not found". The 10.9.5 SDK's CF stub is the
   ground truth. To check: `nm -um <binary> | grep 'from CoreFoundation'`.
+- `-Werror=unguarded-availability` misses types. The suite's `AudioFormatID`, a
+  typedef 10.9's CoreAudioTypes.h doesn't have, built fine against the current SDK
+  and broke `make dist` against the real one. `make headers`, which `make dist`
+  runs, compiles everything against `~/Developer/SDKs/MacOSX10.9.sdk` when it's there.
 - Icons (`Tools/mkicon.m`): check at 128 and 32 px on #EDEDED. CG shadows are in device
   pixels, so scale them.
 

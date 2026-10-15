@@ -277,8 +277,10 @@ static SInt16 FixtureSample(SInt64 i)
     return (SInt16)(((i * 7919) % 20011) - 10005);
 }
 
+// The format is a UInt32, as mFormatID is: 10.9's headers have no
+// AudioFormatID typedef, so naming it breaks the build against the real SDK.
 static NSURL *WriteFixture(NSString *dir, NSString *name, double rate, SInt64 frames, BOOL sine, AudioFileTypeID type,
-                           AudioFormatID format)
+                           UInt32 format)
 {
     [[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:NULL];
     NSURL *url = [NSURL fileURLWithPath:[dir stringByAppendingPathComponent:name]];

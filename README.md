@@ -154,6 +154,7 @@ make test       # unit, audio-engine and live-controller checks
 make snapshot   # renders the deck, and the whole window, to build/shots/*.png
 make verify     # Mach-O checks for Mavericks (below)
 make analyze    # clang static analyser; any finding fails
+make headers    # compile against the real 10.9 SDK's headers, if it is here
 make dist       # all of the above, then Cassette.zip
 make icon       # regenerate Resources/Cassette.icns from the artwork code
 ```
@@ -171,6 +172,13 @@ macOS the audio-unit functions live in AudioToolbox; on 10.9 they live in
 AudioUnit. With the frameworks linked in the other order, the build succeeds and
 the app dies at launch on Mavericks. `make verify` caught exactly that during
 development.
+
+`-Werror=unguarded-availability` stops a function or method newer than 10.9,
+but not a type. A typedef that today's SDK has and 10.9's headers lack compiles
+here and breaks the build against the real SDK; the test suite's
+`AudioFormatID` did, until it became a `UInt32`. So when the 10.9 SDK is in
+`~/Developer/SDKs`, `make headers` compiles every source and the suite against
+it, and `make dist` runs it whichever SDK it builds with.
 
 ### What has and hasn't been verified
 

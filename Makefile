@@ -16,6 +16,7 @@
 #   make snapshot     render the deck to PNGs in build/shots, for looking at
 #   make verify       check the binary really is Mavericks-compatible
 #   make analyze      clang static analyser; any finding fails
+#   make headers      compile against the real 10.9 SDK's headers, if it's here
 #   make dist         all of the above, then Cassette.zip
 #   make icon         regenerate Resources/Cassette.icns from the artwork code
 #   make clean
@@ -71,7 +72,7 @@ SOURCES := $(wildcard Sources/*.m)
 OBJECTS := $(patsubst Sources/%.m,$(BUILD)/%.o,$(SOURCES))
 DEPS    := $(OBJECTS:.o=.d)
 
-.PHONY: all run run-battery test snapshot verify analyze dist icon clean
+.PHONY: all run run-battery test snapshot verify analyze headers dist icon clean
 
 all: $(BUNDLE)
 
@@ -174,9 +175,26 @@ analyze: | $(BUILD)
 	[ $$status -eq 0 ] || { cat $$log; echo "FAIL: analyser did not run"; exit 1; }
 	@echo "OK"
 
+# -Werror=unguarded-availability stops a function or method newer than 10.9,
+# but not a type. A typedef the current SDK has and 10.9's headers lack (the
+# suite once named AudioFormatID) compiles here and breaks the release build
+# against the real SDK. So when that SDK is in ~/Developer/SDKs, this compiles
+# every source and the suite against its headers, building nothing.
+SDK_10_9 := $(HOME)/Developer/SDKs/MacOSX10.9.sdk
+
+headers:
+	@echo "== 10.9 SDK headers =="
+	@if [ ! -f "$(SDK_10_9)/SDKSettings.plist" ]; then \
+	  echo "   skipped: no 10.9 SDK in ~/Developer/SDKs"; exit 0; fi; \
+	for f in $(SOURCES) Tests/cssuite.m; do \
+	  $(CC) $(patsubst $(SDK),$(SDK_10_9),$(CFLAGS)) -ISources -fsyntax-only $$f || \
+	    { echo "FAIL: $$f does not compile against the 10.9 SDK"; exit 1; }; \
+	done; \
+	echo "OK"
+
 # ---- Distribution ----------------------------------------------------------
 
-dist: all verify analyze test
+dist: all verify analyze headers test
 	@rm -rf $(BUILD)/dist $(APP).zip
 	@mkdir -p $(BUILD)/dist
 	@ditto $(BUNDLE) $(BUILD)/dist/$(BUNDLE)
